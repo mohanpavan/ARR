@@ -17,6 +17,9 @@ class EthernetHandler
 {
 
 public:
+    // | Destination MAC | Source MAC    | Ethertype | Payload                | FCS       |
+    // |-----------------|---------------|-----------|------------------------|-----------|
+    // | DE AD BE EF 00 01 | 12 34 56 78 9A BC | 08 00    | 31 3A 48 65 6C 6C 6F 2C 20 57 6F 72 6C 64 21 | 12 34 56 78 |
     /**
      * @brief Assembles a complete ethernet frame in frame_buffer bytes.
      *
@@ -29,7 +32,37 @@ public:
     std::vector<uint8_t> assembleEthernetFrame(std::string_view message,
                                                std::string_view source_mac_address,
                                                std::string_view destination_mac_address,
-                                               int ethertype);
+                                               int ethertype)
+    {
+        std::vector<uint8_t> frame;
+        frame.reserve(header_size + message.size() + fcs_size);
+
+        // Add destination MAC address
+        for (size_t i = 0; i < mac_address_size; ++i) {
+            frame.push_back(static_cast<uint8_t>(std::stoi(std::string(destination_mac_address.substr(i * 2, 2)), nullptr, 16)));
+        }
+
+        // Add source MAC address
+        for (size_t i = 0; i < mac_address_size; ++i) {
+            frame.push_back(static_cast<uint8_t>(std::stoi(std::string(source_mac_address.substr(i * 2, 2)), nullptr, 16)));
+        }
+
+        // Add Ethertype
+        frame.push_back(static_cast<uint8_t>((ethertype >> 8) & 0xFF));
+        frame.push_back(static_cast<uint8_t>(ethertype & 0xFF));
+
+        // Add payload (message is already in the correct format)
+        frame.insert(frame.end(), message.begin(), message.end());
+
+        // Compute and add FCS
+        uint32_t crc = computeCrc32(frame);
+        frame.push_back(static_cast<uint8_t>((crc >> 24) & 0xFF));
+        frame.push_back(static_cast<uint8_t>((crc >> 16) & 0xFF));
+        frame.push_back(static_cast<uint8_t>((crc >> 8) & 0xFF));
+        frame.push_back(static_cast<uint8_t>(crc & 0xFF));
+
+        return frame;
+    }
 
     /**
      * @brief Get the message contained in an ethernet packet.
@@ -37,7 +70,24 @@ public:
      * @param ethernet_packet The ethernet packet
      * @returns A read-only object to the message contained in the ethernet packet
      */
-    std::string_view getMessage(std::vector<uint8_t>& ethernet_packet);
+    std::string_view getMessage(std::vector<uint8_t>& ethernet_packet)
+    {
+        if (ethernet_packet.size() < header_size + fcs_size) {
+            return "";
+        }
+
+        // Verify FCS
+        if (!verifyEthernetFrameFcs(ethernet_packet)) {
+            return "";
+        }
+
+        // Extract payload
+        size_t payload_start = header_size;
+        size_t payload_end = ethernet_packet.size() - fcs_size;
+        std::string_view payload(reinterpret_cast<char*>(&ethernet_packet[payload_start]), payload_end - payload_start);
+
+        return payload;
+    }
 
 private:
     static constexpr uint8_t mac_address_size{6};
