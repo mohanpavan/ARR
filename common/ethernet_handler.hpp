@@ -1,8 +1,16 @@
 #pragma once
+#include <netdb.h>  // Add this line at the top of the file
 #include <cstdint>
 #include <stddef.h>
 #include <vector>
+#include <string>
 #include <string_view>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <sys/ioctl.h>
+#include <cstring>
+#include <unistd.h>
 
 /**
  * @brief The EthernetHandler class
@@ -87,6 +95,55 @@ public:
         std::string_view payload(reinterpret_cast<char*>(&ethernet_packet[payload_start]), payload_end - payload_start);
 
         return payload;
+    }
+
+    static std::string getInterfaceNameByMacAddress(const std::string& mac_address) {
+        struct ifaddrs *ifaddr, *ifa;
+        int family, s;
+        char host[NI_MAXHOST];
+
+        if (getifaddrs(&ifaddr) == -1) {
+            perror("getifaddrs");
+            return "";
+        }
+
+        for (ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+            if (ifa->ifa_addr == nullptr)
+                continue;
+
+            family = ifa->ifa_addr->sa_family;
+
+            if (family == AF_PACKET) {
+                struct ifreq ifr;
+                int fd = socket(AF_INET, SOCK_DGRAM, 0);
+                if (fd == -1) {
+                    perror("socket");
+                    continue;
+                }
+
+                strncpy(ifr.ifr_name, ifa->ifa_name, IFNAMSIZ - 1);
+                if (ioctl(fd, SIOCGIFHWADDR, &ifr) == -1) {
+                    perror("ioctl");
+                    close(fd);
+                    continue;
+                }
+
+                close(fd);
+
+                uint8_t* mac = reinterpret_cast<uint8_t*>(ifr.ifr_hwaddr.sa_data);
+                char mac_str[18];
+                snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x",
+                         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+                if (mac_address == mac_str) {
+                    freeifaddrs(ifaddr);
+                    return ifa->ifa_name;
+                }
+            }
+        }
+
+        freeifaddrs(ifaddr);
+        return "";
     }
 
 private:

@@ -15,13 +15,14 @@ void signalHandler(int signum) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <buffer_capacity>" << std::endl;
+    if (argc != 3) {
+        std::cerr << "Usage: " << argv[0] << " <buffer_capacity> <server_mac>" << std::endl;
         return 1;
     }
 
     uint32_t buffer_capacity = std::stoi(argv[1]);
-    Server server(buffer_capacity);
+    std::string server_mac = argv[2];
+    Server server(buffer_capacity, server_mac);
 
     // Register signal handler for graceful shutdown
     std::signal(SIGINT, signalHandler);

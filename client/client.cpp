@@ -1,7 +1,13 @@
+#include <cstring>
 #include "client.hpp"
 
-Client::Client(const std::string& interface, const std::string& src_mac, const std::string& dest_mac)
-    : interface_(interface), src_mac_(src_mac), dest_mac_(dest_mac) {}
+Client::Client(const std::string& src_mac, const std::string& dest_mac)
+    : src_mac_(src_mac), dest_mac_(dest_mac) {
+    interface_ = EthernetHandler::getInterfaceNameByMacAddress(src_mac_);
+    if (interface_.empty()) {
+        throw std::runtime_error("No interface found with the given MAC address");
+    }
+}
 
 int Client::createRawSocket() {
     int sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
@@ -15,18 +21,8 @@ void Client::bindSocketToInterface(int sockfd) {
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
     strncpy(ifr.ifr_name, interface_.c_str(), IFNAMSIZ - 1);
-    if (ioctl(sockfd, SIOCGIFINDEX, &ifr) < 0) {
-        throw std::runtime_error("ioctl SIOCGIFINDEX failed");
-    }
-
-    struct sockaddr_ll saddrll;
-    memset(&saddrll, 0, sizeof(saddrll));
-    saddrll.sll_family = AF_PACKET;
-    saddrll.sll_ifindex = ifr.ifr_ifindex;
-    saddrll.sll_protocol = htons(ETH_P_ALL);
-
-    if (bind(sockfd, (struct sockaddr*)&saddrll, sizeof(saddrll)) < 0) {
-        throw std::runtime_error("Bind failed");
+    if (setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE, (void*)&ifr, sizeof(ifr)) < 0) {
+        throw std::runtime_error("Bind to device failed");
     }
 }
 

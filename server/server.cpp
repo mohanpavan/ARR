@@ -1,4 +1,5 @@
 #include "server.hpp"
+#include "ethernet_handler.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -10,50 +11,57 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
+#include <cstring>
 
 void Server::startServer() {
-    int sockfd;
     struct sockaddr_ll saddrll;
     struct ifreq ifr;
 
+    // Get the interface name based on the MAC address
+    std::string interface = EthernetHandler::getInterfaceNameByMacAddress(server_mac_);
+    if (interface.empty()) {
+        throw std::runtime_error("No interface found with the given MAC address");
+    }
+
     // Create a raw socket
-    if ((sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0) {
+    if ((socket_ = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0) {
         throw std::runtime_error("Socket creation failed");
     }
 
-    // Get the index of the network interface
+    // Bind to the interface
     memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ - 1); // Replace "eth0" with your interface name
-    if (ioctl(sockfd, SIOCGIFINDEX, &ifr) < 0) {
-        throw std::runtime_error("ioctl SIOCGIFINDEX failed");
+    strncpy(ifr.ifr_name, interface.c_str(), IFNAMSIZ - 1);
+    if (setsockopt(socket_, SOL_SOCKET, SO_BINDTODEVICE, (void*)&ifr, sizeof(ifr)) < 0) {
+        perror("SO_BINDTODEVICE");
+        close(socket_);
+        throw std::runtime_error("Bind to device failed");
     }
 
-    // Bind the socket to the network interface
-    memset(&saddrll, 0, sizeof(saddrll));
-    saddrll.sll_family = AF_PACKET;
-    saddrll.sll_ifindex = ifr.ifr_ifindex;
-    saddrll.sll_protocol = htons(ETH_P_ALL);
-    if (bind(sockfd, (struct sockaddr*)&saddrll, sizeof(saddrll)) < 0) {
-        throw std::runtime_error("Bind failed");
-    }
+    std::cout << "Listening for incoming Ethernet frames on interface " << interface << "..." << std::endl;
 
     // Listen for incoming packets
-    listenForPackets(sockfd);
+    listenForPackets();
 
-    close(sockfd);
+    close(socket_);
 }
 
-void Server::listenForPackets(int sockfd) {
+void Server::listenForPackets() {
     uint8_t buffer[ETH_FRAME_LEN];
     struct sockaddr_ll saddrll;
     socklen_t saddrll_len = sizeof(saddrll);
 
-    while (true) {
-        ssize_t num_bytes = recvfrom(sockfd, buffer, ETH_FRAME_LEN, 0, (struct sockaddr*)&saddrll, &saddrll_len);
+    while (running) {
+        // Receive Ethernet frame
+        ssize_t num_bytes = recvfrom(socket_, buffer, ETH_FRAME_LEN, 0, (struct sockaddr*)&saddrll, &saddrll_len);
         if (num_bytes < 0) {
             perror("recvfrom failed");
             continue;
         }
+
+        // Extract MAC addresses
+        uint8_t* dest_mac = buffer;
+        uint8_t* src_mac = buffer + 6;
+        uint16_t eth_proto = ntohs(*(uint16_t*)(buffer + 12));
 
         std::vector<uint8_t> packet(buffer, buffer + num_bytes);
         std::string_view message = ethernet_handler_.getMessage(packet);
@@ -69,11 +77,11 @@ void Server::listenForPackets(int sockfd) {
                 std::vector<uint8_t> response = buffer_.getElement(id);
                 std::vector<uint8_t> response_packet = ethernet_handler_.assembleEthernetFrame(
                     std::string(response.begin(), response.end()),
-                    "12:34:56:78:9A:BC", // Replace with server's MAC address
-                    "DE:AD:BE:EF:00:01", // Replace with client's MAC address
+                    server_mac_,
+                    std::string(reinterpret_cast<char*>(src_mac), 6),
                     0x0800
                 );
-                sendto(sockfd, response_packet.data(), response_packet.size(), 0, (struct sockaddr*)&saddrll, saddrll_len);
+                sendto(socket_, response_packet.data(), response_packet.size(), 0, (struct sockaddr*)&saddrll, saddrll_len);
             }
         }
     }

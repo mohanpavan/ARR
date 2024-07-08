@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: server_container
+    network_mode: host
+    entrypoint: ["sh", "-c", "./start_server.sh"]
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: client_container
+    network_mode: host
+    depends_on:
+      - server
+    stdin_open: true  # Keep the container open for user input
+    tty: true         # Allocate a pseudo-TTY

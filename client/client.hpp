@@ -14,7 +14,7 @@
 
 class Client {
 public:
-    Client(const std::string& interface, const std::string& src_mac, const std::string& dest_mac);
+    Client(const std::string& src_mac, const std::string& dest_mac);
 
     void sendEthernetPacket(const std::string& message, bool is_request);
 
@@ -23,7 +23,7 @@ private:
     std::string src_mac_;
     std::string dest_mac_;
     EthernetHandler ethernet_handler_;
-
+private:
     int createRawSocket();
     void bindSocketToInterface(int sockfd);
 };

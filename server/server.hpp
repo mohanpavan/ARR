@@ -1,6 +1,9 @@
 #pragma once
 #include "buffer.hpp"
 #include "ethernet_handler.hpp"
+#include <atomic>
+
+extern std::atomic<bool> running;  // Added this line
 
 /**
  * @brief The Server class
@@ -13,8 +16,8 @@
 class Server
 {
 public:
-    Server(uint32_t capacity)
-        : buffer_(capacity)
+    Server(uint32_t capacity, const std::string& server_mac)
+        : buffer_(capacity), server_mac_(server_mac)
     {
     }
 
@@ -33,6 +36,8 @@ public:
     void listenForPackets(); 
 
 private:
+    int socket_;
     Buffer buffer_;
     EthernetHandler ethernet_handler_;
+    std::string server_mac_;
 };
